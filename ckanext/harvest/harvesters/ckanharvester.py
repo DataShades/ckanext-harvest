@@ -1,6 +1,9 @@
+import datetime
 import urllib2
 import httplib
+import requests
 
+from pylons import config as cfg
 from ckan.lib.base import c
 from ckan import model
 from ckan.model import Session, Package
@@ -16,6 +19,8 @@ import logging
 log = logging.getLogger(__name__)
 
 from base import HarvesterBase
+
+current_package = 0
 
 class CKANHarvester(HarvesterBase):
     '''
@@ -57,7 +62,8 @@ class CKANHarvester(HarvesterBase):
 
     def _get_group(self, base_url, group_name):
         url = base_url + self._get_rest_api_offset() + '/group/' + munge_name(group_name)
-        try:
+        log.warning(url)
+	try:
             content = self._get_content(url)
             return json.loads(content)
         except (ContentFetchError, ValueError):
@@ -184,13 +190,14 @@ class CKANHarvester(HarvesterBase):
         include_pkg_ids = get_pkg_ids_for_organizations(org_filter_include)
         exclude_pkg_ids = get_pkg_ids_for_organizations(org_filter_exclude)
 
-        if (previous_job and not previous_job.gather_errors and not len(previous_job.objects) == 0):
+        if (previous_job ):
             if not self.config.get('force_all',False):
                 get_all_packages = False
 
                 # Request only the packages modified since last harvest job
-                last_time = previous_job.gather_finished.isoformat()
+                last_time = (previous_job.gather_finished - datetime.timedelta(days=3)).isoformat()
                 url = base_search_url + '/revision?since_time=%s' % last_time
+		log.debug('Getting revisions via URL: %r' % url)
 
                 try:
                     content = self._get_content(url)
@@ -199,14 +206,15 @@ class CKANHarvester(HarvesterBase):
                     if len(revision_ids):
                         for revision_id in revision_ids:
                             url = base_rest_url + '/revision/%s' % revision_id
-                            try:
+                            #log.debug('Fetching revision: %r' % url)
+			    try:
                                 content = self._get_content(url)
                             except ContentFetchError,e:
                                 self._save_gather_error('Unable to get content for URL: %s: %s' % (url, str(e)),harvest_job)
                                 continue
 
                             revision = json.loads(content)
-                            package_ids = revision['packages']
+                            package_ids = set(package_ids) | set(revision['packages'])
                     else:
                         log.info('No revisions since last harvest %s',
                                  last_time)
@@ -243,10 +251,10 @@ class CKANHarvester(HarvesterBase):
         elif org_filter_exclude:
             package_ids = set(package_ids) - exclude_pkg_ids
 
-        try:
+	try:
             object_ids = []
             if len(package_ids):
-                for package_id in package_ids:
+		for package_id in package_ids:
                     # Create a new HarvestObject for this identifier
                     obj = HarvestObject(guid = package_id, job = harvest_job)
                     obj.save()
@@ -285,7 +293,9 @@ class CKANHarvester(HarvesterBase):
         return True
 
     def import_stage(self,harvest_object):
-        log.debug('In CKANHarvester import_stage')
+	global current_package
+        current_package += 1
+        log.debug('In CKANHarvester import_stage for package number %r' % current_package)
 
         context = {'model': model, 'session': Session, 'user': self._get_user_name()}
         if not harvest_object:
@@ -305,6 +315,12 @@ class CKANHarvester(HarvesterBase):
             if package_dict.get('type') == 'harvest':
                 log.warn('Remote dataset is a harvest source, ignoring...')
                 return True
+
+	    if not package_dict['extras'].get('public') or package_dict['extras'].get('public') != 'true':
+		log.warn('Remote dataset not cleared for publication, deleting... ' + package_dict['name']);
+		package_dict['state'] = 'deleted'
+	    else:
+		package_dict['state'] = 'active'
 
             # Set default tags if needed
             default_tags = self.config.get('default_tags',[])
@@ -355,8 +371,11 @@ class CKANHarvester(HarvesterBase):
 
 
             # Local harvest source organization
-            source_dataset = get_action('package_show')(context, {'id': harvest_object.source.id})
-            local_org = source_dataset.get('owner_org')
+            try:
+		source_dataset = get_action('package_show')(context, {'id': harvest_object.source.id})
+            	local_org = source_dataset.get('owner_org')
+	    except:
+		local_org = None
 
             remote_orgs = self.config.get('remote_orgs', None)
 
@@ -410,8 +429,7 @@ class CKANHarvester(HarvesterBase):
             for key in package_dict['extras'].keys():
                 if not isinstance(package_dict['extras'][key], basestring):
                     try:
-                        package_dict['extras'][key] = json.dumps(
-                                package_dict['extras'][key])
+                        package_dict['extras'][key] = json.dumps(package_dict['extras'][key])
                     except TypeError:
                         # If converting to a string fails, just delete it.
                         del package_dict['extras'][key]
@@ -447,6 +465,27 @@ class CKANHarvester(HarvesterBase):
                 resource.pop('revision_id', None)
 
             result = self._create_or_update_package(package_dict,harvest_object)
+
+	    api_key = self.config.get('api_key',None)
+            site_url = cfg.get('ckan.site_url', '')
+            if site_url[-1:] == '/': site_url = site_url[0:-1]
+            if api_key and package_dict.get('resources'):
+                for resource in package_dict['resources']:
+                    try:
+                        if 'public_order_url' in resource : continue
+                        if resource['url'].lower().find(site_url) >= 0 : continue
+                        if '/download/' in resource['url'].lower():
+                            request = urllib2.Request(resource['url'])
+                            response = urllib2.urlopen(request)
+                            upload_file = response.read()
+                            #requests.post(site_url+'/api/action/resource_update',
+                            #                  data={"id":resource['id']},
+                            #                  headers={"X-CKAN-API-Key": api_key},
+                            #                  files=[('upload', upload_file)]
+                            #                  )
+                    except Exception, e:
+                        logging.warn('wrong resource url')
+                        logging.warn(e)
 
             if result is True and self.config.get('read_only', False) is True:
 

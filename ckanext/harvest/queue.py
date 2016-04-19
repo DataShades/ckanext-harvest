@@ -250,7 +250,7 @@ def gather_callback(channel, method, header, body):
     publisher = get_fetch_publisher()
 
     try:
-        job = HarvestJob.get(id)
+	job = HarvestJob.get(id)
     except sqlalchemy.exc.OperationalError, e:
         # Occasionally we see: sqlalchemy.exc.OperationalError
         # "SSL connection has been closed unexpectedly"
