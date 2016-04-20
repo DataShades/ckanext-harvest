@@ -1,26 +1,26 @@
 import datetime
 import urllib2
 import httplib
-import requests
 
 from pylons import config as cfg
 from ckan.lib.base import c
 from ckan import model
-from ckan.model import Session, Package
+from ckan.model import Session
 from ckan.logic import ValidationError, NotFound, get_action
-from ckan.lib.helpers import json
+import ckan.lib.helpers
 from ckan.lib.munge import munge_name
-from simplejson.scanner import JSONDecodeError
+import simplejson.scanner
 
-from ckanext.harvest.model import HarvestJob, HarvestObject, HarvestGatherError, \
-                                    HarvestObjectError
+from ckanext.harvest.model import HarvestJob, HarvestObject
 
 import logging
+
 log = logging.getLogger(__name__)
 
 from base import HarvesterBase
 
 current_package = 0
+
 
 class CKANHarvester(HarvesterBase):
     '''
@@ -63,9 +63,9 @@ class CKANHarvester(HarvesterBase):
     def _get_group(self, base_url, group_name):
         url = base_url + self._get_rest_api_offset() + '/group/' + munge_name(group_name)
         log.warning(url)
-	try:
+        try:
             content = self._get_content(url)
-            return json.loads(content)
+            return ckan.lib.helpers.json.loads(content)
         except (ContentFetchError, ValueError):
             log.debug('Could not fetch/decode remote group');
             raise RemoteResourceError('Could not fetch/decode remote group')
@@ -74,15 +74,15 @@ class CKANHarvester(HarvesterBase):
         url = base_url + self._get_action_api_offset() + '/organization_show?id=' + org_name
         try:
             content = self._get_content(url)
-            content_dict = json.loads(content)
+            content_dict = ckan.lib.helpers.json.loads(content)
             return content_dict['result']
         except (ContentFetchError, ValueError, KeyError):
             log.debug('Could not fetch/decode remote group');
             raise RemoteResourceError('Could not fetch/decode remote organization')
 
-    def _set_config(self,config_str):
+    def _set_config(self, config_str):
         if config_str:
-            self.config = json.loads(config_str)
+            self.config = ckan.lib.helpers.json.loads(config_str)
             if 'api_version' in self.config:
                 self.api_version = int(self.config['api_version'])
 
@@ -95,15 +95,15 @@ class CKANHarvester(HarvesterBase):
             'name': 'ckan',
             'title': 'CKAN',
             'description': 'Harvests remote CKAN instances',
-            'form_config_interface':'Text'
+            'form_config_interface': 'Text'
         }
 
-    def validate_config(self,config):
+    def validate_config(self, config):
         if not config:
             return config
 
         try:
-            config_obj = json.loads(config)
+            config_obj = ckan.lib.helpers.json.loads(config)
 
             if 'api_version' in config_obj:
                 try:
@@ -112,45 +112,44 @@ class CKANHarvester(HarvesterBase):
                     raise ValueError('api_version must be an integer')
 
             if 'default_tags' in config_obj:
-                if not isinstance(config_obj['default_tags'],list):
+                if not isinstance(config_obj['default_tags'], list):
                     raise ValueError('default_tags must be a list')
 
             if 'default_groups' in config_obj:
-                if not isinstance(config_obj['default_groups'],list):
+                if not isinstance(config_obj['default_groups'], list):
                     raise ValueError('default_groups must be a list')
 
                 # Check if default groups exist
-                context = {'model':model,'user':c.user}
+                context = {'model': model, 'user': c.user}
                 for group_name in config_obj['default_groups']:
                     try:
-                        group = get_action('group_show')(context,{'id':group_name})
-                    except NotFound,e:
+                        group = get_action('group_show')(context, {'id': group_name})
+                    except NotFound, e:
                         raise ValueError('Default group not found')
 
             if 'default_extras' in config_obj:
-                if not isinstance(config_obj['default_extras'],dict):
+                if not isinstance(config_obj['default_extras'], dict):
                     raise ValueError('default_extras must be a dictionary')
 
             if 'user' in config_obj:
                 # Check if user exists
-                context = {'model':model,'user':c.user}
+                context = {'model': model, 'user': c.user}
                 try:
-                    user = get_action('user_show')(context,{'id':config_obj.get('user')})
-                except NotFound,e:
+                    user = get_action('user_show')(context, {'id': config_obj.get('user')})
+                except NotFound, e:
                     raise ValueError('User not found')
 
-            for key in ('read_only','force_all'):
+            for key in ('read_only', 'force_all'):
                 if key in config_obj:
-                    if not isinstance(config_obj[key],bool):
+                    if not isinstance(config_obj[key], bool):
                         raise ValueError('%s must be boolean' % key)
 
-        except ValueError,e:
+        except ValueError, e:
             raise e
 
         return config
 
-
-    def gather_stage(self,harvest_job):
+    def gather_stage(self, harvest_job):
         log.debug('In CKANHarvester gather_stage (%s)' % harvest_job.source.url)
         get_all_packages = True
         package_ids = []
@@ -159,11 +158,11 @@ class CKANHarvester(HarvesterBase):
 
         # Check if this source has been harvested before
         previous_job = Session.query(HarvestJob) \
-                        .filter(HarvestJob.source==harvest_job.source) \
-                        .filter(HarvestJob.gather_finished!=None) \
-                        .filter(HarvestJob.id!=harvest_job.id) \
-                        .order_by(HarvestJob.gather_finished.desc()) \
-                        .limit(1).first()
+            .filter(HarvestJob.source == harvest_job.source) \
+            .filter(HarvestJob.gather_finished != None) \
+            .filter(HarvestJob.id != harvest_job.id) \
+            .order_by(HarvestJob.gather_finished.desc()) \
+            .limit(1).first()
 
         # Get source URL
         base_url = harvest_job.source.url.rstrip('/')
@@ -173,47 +172,49 @@ class CKANHarvester(HarvesterBase):
         # Filter in/out datasets from particular organizations
         org_filter_include = self.config.get('organizations_filter_include', [])
         org_filter_exclude = self.config.get('organizations_filter_exclude', [])
+
         def get_pkg_ids_for_organizations(orgs):
             pkg_ids = set()
             for organization in orgs:
                 url = base_search_url + '/dataset?organization=%s' % organization
                 content = self._get_content(url)
-                content_json = json.loads(content)
+                content_json = ckan.lib.helpers.json.loads(content)
                 result_count = int(content_json['count'])
                 pkg_ids |= set(content_json['results'])
                 while len(pkg_ids) < result_count or not content_json['results']:
                     url = base_search_url + '/dataset?organization=%s&offset=%s' % (organization, len(pkg_ids))
                     content = self._get_content(url)
-                    content_json = json.loads(content)
+                    content_json = ckan.lib.helpers.json.loads(content)
                     pkg_ids |= set(content_json['results'])
             return pkg_ids
+
         include_pkg_ids = get_pkg_ids_for_organizations(org_filter_include)
         exclude_pkg_ids = get_pkg_ids_for_organizations(org_filter_exclude)
 
-        if (previous_job ):
-            if not self.config.get('force_all',False):
+        if previous_job:
+            if not self.config.get('force_all', False):
                 get_all_packages = False
 
-                # Request only the packages modified since last harvest job
+                # Request only the packages modified since 3 days before last harvest job
                 last_time = (previous_job.gather_finished - datetime.timedelta(days=3)).isoformat()
                 url = base_search_url + '/revision?since_time=%s' % last_time
-		log.debug('Getting revisions via URL: %r' % url)
+                log.debug('Getting revisions via URL: %r' % url)
 
                 try:
                     content = self._get_content(url)
 
-                    revision_ids = json.loads(content)
+                    revision_ids = ckan.lib.helpers.json.loads(content)
                     if len(revision_ids):
                         for revision_id in revision_ids:
                             url = base_rest_url + '/revision/%s' % revision_id
-                            #log.debug('Fetching revision: %r' % url)
-			    try:
+                            try:
                                 content = self._get_content(url)
-                            except ContentFetchError,e:
-                                self._save_gather_error('Unable to get content for URL: %s: %s' % (url, str(e)),harvest_job)
+                            except ContentFetchError, e:
+                                self._save_gather_error('Unable to get content for URL: %s: %s' % (url, str(e)),
+                                                        harvest_job)
                                 continue
 
-                            revision = json.loads(content)
+                            revision = ckan.lib.helpers.json.loads(content)
                             package_ids = set(package_ids) | set(revision['packages'])
                     else:
                         log.info('No revisions since last harvest %s',
@@ -238,12 +239,12 @@ class CKANHarvester(HarvesterBase):
 
             try:
                 content = self._get_content(url)
-                package_ids = json.loads(content)
-            except ContentFetchError,e:
-                self._save_gather_error('Unable to get content for URL: %s: %s' % (url, str(e)),harvest_job)
+                package_ids = ckan.lib.helpers.json.loads(content)
+            except ContentFetchError, e:
+                self._save_gather_error('Unable to get content for URL: %s: %s' % (url, str(e)), harvest_job)
                 return None
-            except JSONDecodeError,e:
-                self._save_gather_error('Unable to decode content for URL: %s: %s' % (url, str(e)),harvest_job)
+            except simplejson.scanner.JSONDecodeError, e:
+                self._save_gather_error('Unable to decode content for URL: %s: %s' % (url, str(e)), harvest_job)
                 return None
 
         if org_filter_include:
@@ -251,26 +252,24 @@ class CKANHarvester(HarvesterBase):
         elif org_filter_exclude:
             package_ids = set(package_ids) - exclude_pkg_ids
 
-	try:
+        try:
             object_ids = []
             if len(package_ids):
-		for package_id in package_ids:
+                for package_id in package_ids:
                     # Create a new HarvestObject for this identifier
-                    obj = HarvestObject(guid = package_id, job = harvest_job)
+                    obj = HarvestObject(guid=package_id, job=harvest_job)
                     obj.save()
                     object_ids.append(obj.id)
 
                 return object_ids
-
             else:
-               self._save_gather_error('No packages received for URL: %s' % url,
-                       harvest_job)
-               return None
+                self._save_gather_error('No packages received for URL: %s' % url,
+                                        harvest_job)
+                return None
         except Exception, e:
-            self._save_gather_error('%r'%e.message,harvest_job)
+            self._save_gather_error('%r' % e.message, harvest_job)
 
-
-    def fetch_stage(self,harvest_object):
+    def fetch_stage(self, harvest_object):
         log.debug('In CKANHarvester fetch_stage')
 
         self._set_config(harvest_object.job.source.config)
@@ -282,9 +281,9 @@ class CKANHarvester(HarvesterBase):
         # Get contents
         try:
             content = self._get_content(url)
-        except ContentFetchError,e:
+        except ContentFetchError, e:
             self._save_object_error('Unable to get content for package: %s: %r' % \
-                                        (url, e),harvest_object)
+                                    (url, e), harvest_object)
             return None
 
         # Save the fetched contents in the HarvestObject
@@ -292,8 +291,8 @@ class CKANHarvester(HarvesterBase):
         harvest_object.save()
         return True
 
-    def import_stage(self,harvest_object):
-	global current_package
+    def import_stage(self, harvest_object):
+        global current_package
         current_package += 1
         log.debug('In CKANHarvester import_stage for package number %r' % current_package)
 
@@ -304,26 +303,26 @@ class CKANHarvester(HarvesterBase):
 
         if harvest_object.content is None:
             self._save_object_error('Empty content for object %s' % harvest_object.id,
-                    harvest_object, 'Import')
+                                    harvest_object, 'Import')
             return False
 
         self._set_config(harvest_object.job.source.config)
 
         try:
-            package_dict = json.loads(harvest_object.content)
+            package_dict = ckan.lib.helpers.json.loads(harvest_object.content)
 
             if package_dict.get('type') == 'harvest':
                 log.warn('Remote dataset is a harvest source, ignoring...')
                 return True
 
-	    if not package_dict['extras'].get('public') or package_dict['extras'].get('public') != 'true':
-		log.warn('Remote dataset not cleared for publication, deleting... ' + package_dict['name']);
-		package_dict['state'] = 'deleted'
-	    else:
-		package_dict['state'] = 'active'
+            if not package_dict['extras'].get('public') or package_dict['extras'].get('public') != 'true':
+                log.warn('Remote dataset not cleared for publication, deleting... ' + package_dict['name']);
+                package_dict['state'] = 'deleted'
+            else:
+                package_dict['state'] = 'active'
 
             # Set default tags if needed
-            default_tags = self.config.get('default_tags',[])
+            default_tags = self.config.get('default_tags', [])
             if default_tags:
                 if not 'tags' in package_dict:
                     package_dict['tags'] = []
@@ -369,13 +368,12 @@ class CKANHarvester(HarvesterBase):
 
                 package_dict['groups'] = validated_groups
 
-
             # Local harvest source organization
             try:
-		source_dataset = get_action('package_show')(context, {'id': harvest_object.source.id})
-            	local_org = source_dataset.get('owner_org')
-	    except:
-		local_org = None
+                source_dataset = get_action('package_show')(context, {'id': harvest_object.source.id})
+                local_org = source_dataset.get('owner_org')
+            except:
+                local_org = None
 
             remote_orgs = self.config.get('remote_orgs', None)
 
@@ -406,7 +404,8 @@ class CKANHarvester(HarvesterBase):
                                     # this especially targets older versions of CKAN
                                     org = self._get_group(harvest_object.source.url, remote_org)
 
-                                for key in ['packages', 'created', 'users', 'groups', 'tags', 'extras', 'display_name', 'type']:
+                                for key in ['packages', 'created', 'users', 'groups', 'tags', 'extras', 'display_name',
+                                            'type']:
                                     org.pop(key, None)
                                 get_action('organization_create')(context, org)
                                 log.info('Organization %s has been newly created' % remote_org)
@@ -429,27 +428,27 @@ class CKANHarvester(HarvesterBase):
             for key in package_dict['extras'].keys():
                 if not isinstance(package_dict['extras'][key], basestring):
                     try:
-                        package_dict['extras'][key] = json.dumps(package_dict['extras'][key])
+                        package_dict['extras'][key] = ckan.lib.helpers.json.dumps(package_dict['extras'][key])
                     except TypeError:
                         # If converting to a string fails, just delete it.
                         del package_dict['extras'][key]
 
             # Set default extras if needed
-            default_extras = self.config.get('default_extras',{})
+            default_extras = self.config.get('default_extras', {})
             if default_extras:
-                override_extras = self.config.get('override_extras',False)
+                override_extras = self.config.get('override_extras', False)
                 if not 'extras' in package_dict:
                     package_dict['extras'] = {}
-                for key,value in default_extras.iteritems():
+                for key, value in default_extras.iteritems():
                     if not key in package_dict['extras'] or override_extras:
                         # Look for replacement strings
-                        if isinstance(value,basestring):
+                        if isinstance(value, basestring):
                             value = value.format(harvest_source_id=harvest_object.job.source.id,
-                                     harvest_source_url=harvest_object.job.source.url.strip('/'),
-                                     harvest_source_title=harvest_object.job.source.title,
-                                     harvest_job_id=harvest_object.job.id,
-                                     harvest_object_id=harvest_object.id,
-                                     dataset_id=package_dict['id'])
+                                                 harvest_source_url=harvest_object.job.source.url.strip('/'),
+                                                 harvest_source_title=harvest_object.job.source.title,
+                                                 harvest_job_id=harvest_object.job.id,
+                                                 harvest_object_id=harvest_object.id,
+                                                 dataset_id=package_dict['id'])
 
                         package_dict['extras'][key] = value
 
@@ -464,25 +463,23 @@ class CKANHarvester(HarvesterBase):
                 # key.
                 resource.pop('revision_id', None)
 
-            result = self._create_or_update_package(package_dict,harvest_object)
+            result = self._create_or_update_package(package_dict, harvest_object)
 
-	    api_key = self.config.get('api_key',None)
+            api_key = self.config.get('api_key', None)
             site_url = cfg.get('ckan.site_url', '')
-            if site_url[-1:] == '/': site_url = site_url[0:-1]
+            if site_url[-1:] == '/':
+                site_url = site_url[0:-1]
             if api_key and package_dict.get('resources'):
                 for resource in package_dict['resources']:
                     try:
-                        if 'public_order_url' in resource : continue
-                        if resource['url'].lower().find(site_url) >= 0 : continue
+                        if 'public_order_url' in resource:
+                            continue
+                        if resource['url'].lower().find(site_url) >= 0:
+                            continue
                         if '/download/' in resource['url'].lower():
                             request = urllib2.Request(resource['url'])
                             response = urllib2.urlopen(request)
                             upload_file = response.read()
-                            #requests.post(site_url+'/api/action/resource_update',
-                            #                  data={"id":resource['id']},
-                            #                  headers={"X-CKAN-API-Key": api_key},
-                            #                  files=[('upload', upload_file)]
-                            #                  )
                     except Exception, e:
                         logging.warn('wrong resource url')
                         logging.warn(e)
@@ -495,27 +492,30 @@ class CKANHarvester(HarvesterBase):
                 model.clear_user_roles(package)
 
                 # Setup harvest user as admin
-                user_name = self.config.get('user',u'harvest')
+                user_name = self.config.get('user', u'harvest')
                 user = model.User.get(user_name)
                 pkg_role = model.PackageRole(package=package, user=user, role=model.Role.ADMIN)
 
                 # Other users can only read
-                for user_name in (u'visitor',u'logged_in'):
+                for user_name in (u'visitor', u'logged_in'):
                     user = model.User.get(user_name)
                     pkg_role = model.PackageRole(package=package, user=user, role=model.Role.READER)
 
             return result
-        except ValidationError,e:
+        except ValidationError, e:
             self._save_object_error('Invalid package with GUID %s: %r' % (harvest_object.guid, e.error_dict),
-                    harvest_object, 'Import')
+                                    harvest_object, 'Import')
         except Exception, e:
-            self._save_object_error('%r'%e,harvest_object,'Import')
+            self._save_object_error('%r' % e, harvest_object, 'Import')
+
 
 class ContentFetchError(Exception):
     pass
 
+
 class ContentNotFoundError(ContentFetchError):
     pass
+
 
 class RemoteResourceError(Exception):
     pass
