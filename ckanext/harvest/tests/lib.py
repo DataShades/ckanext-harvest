@@ -10,7 +10,8 @@ def run_harvest(url, harvester, config=''):
     Queues are avoided as they are a pain in tests.
     '''
     # User creates a harvest source
-    source = HarvestSourceObj(url=url, config=config)
+    source = HarvestSourceObj(url=url, config=config,
+                              source_type=harvester.info()['name'])
 
     # User triggers a harvest, which is the creation of a harvest job.
     # We set run=False so that it doesn't put it on the gather queue.
@@ -29,6 +30,10 @@ def run_harvest_job(job, harvester):
     # queue.gather_callback, which determines the harvester and then calls
     # gather_stage. We simply call the gather_stage.
     obj_ids = queue.gather_stage(harvester, job)
+    if not isinstance(obj_ids, list):
+        # gather had nothing to do or errored. Carry on to ensure the job is
+        # closed properly
+        obj_ids = []
 
     # The object ids are put onto the fetch queue, consumed by
     # queue.fetch_callback which calls queue.fetch_and_import_stages

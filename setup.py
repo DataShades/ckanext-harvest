@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 import sys, os
 
-version = '0.2'
+version = '0.0.5'
 
 setup(
 	name='ckanext-harvest',
@@ -20,7 +20,7 @@ setup(
 	include_package_data=True,
 	zip_safe=False,
 	install_requires=[
-	        # dependencies are specified in pip-requirements.txt 
+	        # dependencies are specified in pip-requirements.txt
 	        # instead of here
 	],
 	tests_require=[
@@ -36,6 +36,7 @@ setup(
 	ckan_harvester=ckanext.harvest.harvesters:CKANHarvester
     [ckan.test_plugins]
 	test_harvester=ckanext.harvest.tests.test_queue:MockHarvester
+	test_harvester2=ckanext.harvest.tests.test_queue2:MockHarvester
 	test_action_harvester=ckanext.harvest.tests.test_action:MockHarvesterForActionTests
 	[paste.paster_command]
 	harvester = ckanext.harvest.commands.harvester:Harvester

@@ -8,7 +8,6 @@ from pylons import config
 from ckan import plugins as p
 from ckan import model
 from ckan.model import Session, Package, PACKAGE_NAME_MAX_LENGTH
-from ckan.logic import ValidationError, NotFound, get_action
 
 from ckan.logic.schema import default_create_package_schema
 from ckan.lib.navl.validators import ignore_missing, ignore
@@ -217,14 +216,33 @@ class HarvesterBase(SingletonPlugin):
         except Exception, e:
             self._save_gather_error('%r' % e.message, harvest_job)
 
-
-    def _create_or_update_package(self, package_dict, harvest_object):
+    def _create_or_update_package(self, package_dict, harvest_object,
+                                  package_dict_form='rest'):
         '''
         Creates a new package or updates an exisiting one according to the
-        package dictionary provided. The package dictionary should look like
-        the REST API response for a package:
+        package dictionary provided.
 
-        http://ckan.net/api/rest/package/statistics-catalunya
+        The package dictionary can be in one of two forms:
+
+        1. 'rest' - as seen on the RESTful API:
+
+                http://datahub.io/api/rest/dataset/1996_population_census_data_canada
+
+           This is the legacy form. It is the default to provide backward
+           compatibility.
+
+           * 'extras' is a dict e.g. {'theme': 'health', 'sub-theme': 'cancer'}
+           * 'tags' is a list of strings e.g. ['large-river', 'flood']
+
+        2. 'package_show' form, as provided by the Action API (CKAN v2.0+):
+
+               http://datahub.io/api/action/package_show?id=1996_population_census_data_canada
+
+           * 'extras' is a list of dicts
+                e.g. [{'key': 'theme', 'value': 'health'},
+                        {'key': 'sub-theme', 'value': 'cancer'}]
+           * 'tags' is a list of dicts
+                e.g. [{'name': 'large-river'}, {'name': 'flood'}]
 
         Note that the package_dict must contain an id, which will be used to
         check if the package needs to be created or updated (use the remote
@@ -242,6 +260,7 @@ class HarvesterBase(SingletonPlugin):
         use the output of package_show logic function (maybe keeping support
         for rest api based dicts
         '''
+        assert package_dict_form in ('rest', 'package_show')
         try:
             # Change default schema
             schema = default_create_package_schema()
@@ -275,6 +294,7 @@ class HarvesterBase(SingletonPlugin):
 
             # Check if package exists
             try:
+                # _find_existing_package can be overridden if necessary
                 existing_package_dict = self._find_existing_package(package_dict)
 
                 # In case name has been modified when first importing. See issue #101.
@@ -287,11 +307,14 @@ class HarvesterBase(SingletonPlugin):
                     # Update package
                     context.update({'id':package_dict['id']})
                     package_dict.setdefault('name',
-                            existing_package_dict['name'])
-                    new_package = get_action('package_update_rest')(context, package_dict)
+                                            existing_package_dict['name'])
+
+                    new_package = p.toolkit.get_action(
+                        'package_update' if package_dict_form == 'package_show'
+                        else 'package_update_rest')(context, package_dict)
 
                 else:
-                    log.info('Package with GUID %s not updated, skipping...' % harvest_object.guid)
+                    log.info('No changes to package with GUID %s, skipping...' % harvest_object.guid)
                     # NB harvest_object.current/package_id are not set
                     return 'unchanged'
 
@@ -309,7 +332,7 @@ class HarvesterBase(SingletonPlugin):
                 harvest_object.current = True
                 harvest_object.save()
 
-            except NotFound:
+            except p.toolkit.ObjectNotFound:
                 # Package needs to be created
 
                 # Get rid of auth audit on the context otherwise we'll get an
@@ -333,13 +356,15 @@ class HarvesterBase(SingletonPlugin):
                 model.Session.execute('SET CONSTRAINTS harvest_object_package_id_fkey DEFERRED')
                 model.Session.flush()
 
-                new_package = get_action('package_create_rest')(context, package_dict)
+                new_package = p.toolkit.get_action(
+                    'package_create' if package_dict_form == 'package_show'
+                    else 'package_create_rest')(context, package_dict)
 
             Session.commit()
 
             return True
 
-        except ValidationError,e:
+        except p.toolkit.ValidationError, e:
             log.exception(e)
             self._save_object_error('Invalid package with GUID %s: %r'%(harvest_object.guid,e.error_dict),harvest_object,'Import')
         except Exception, e:
@@ -352,5 +377,5 @@ class HarvesterBase(SingletonPlugin):
         data_dict = {'id': package_dict['id']}
         package_show_context = {'model': model, 'session': Session,
                                 'ignore_auth': True}
-        return get_action('package_show')(
+        return p.toolkit.get_action('package_show')(
             package_show_context, data_dict)

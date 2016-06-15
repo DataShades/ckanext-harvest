@@ -8,11 +8,13 @@ ckanext-harvest - Remote harvesting extension
 This extension provides a common harvesting framework for ckan extensions
 and adds a CLI and a WUI to CKAN to manage harvesting sources and jobs.
 
-Requires CKAN 2.0 or later.
-
 
 Installation
 ============
+
+This extension requires CKAN v2.0 or later on both the CKAN it is installed
+into and the CKANs it harvests. However you are unlikely to encounter a CKAN
+running a version lower than 2.0.
 
 1. The harvest extension can use two different backends. You can choose whichever
    you prefer depending on your needs, but Redis has been found to be more stable
@@ -56,6 +58,7 @@ Installation
 
      ckan.harvest.mq.type = redis
 
+
 There are a number of configuration options available for the backends. These don't need to
 be modified at all if you are using the default Redis or RabbitMQ install (step 1). The list
 below shows the available options and their default values:
@@ -98,6 +101,68 @@ Finally, restart CKAN to have the changes take affect:
 After installation, the harvest source listing should be available under /harvest, eg:
 
     http://localhost:5000/harvest
+
+Database logger configuration(optional)
+=======================================
+
+1. Logging to the database is disabled by default. If you want your ckan harvest logs 
+   to be exposed to the CKAN API you need to properly configure the logger
+   with the following configuration parameter::
+
+     ckan.harvest.log_scope = 0
+
+ * -1 - Do not log in the database - DEFAULT
+ *  0 - Log everything
+ *  1 - model, logic.action, logic.validators, harvesters
+ *  2 - model, logic.action, logic.validators
+ *  3 - model, logic.action
+ *  4 - logic.action
+ *  5 - model
+ *  6 - plugin
+ *  7 - harvesters
+
+2. Setup time frame(in days) for the clean-up mechanism with the following config parameter::
+
+     ckan.harvest.log_timeframe = 10
+
+   If no value is present the default is 30 days.
+
+3. Setup log level for the database logger::
+
+     ckan.harvest.log_level = info
+
+   If no log level is set the default is ``debug``.
+
+
+**API Usage**
+
+You can access CKAN harvest logs via the API:
+
+    $ curl {ckan_url}/api/3/action/harvest_log_list
+
+Replace {ckan_url} with the url from your CKAN instance.
+
+Allowed parameters are: 
+
+    * level (filter log records by level)
+
+    * limit (used for pagination)
+
+    * offset (used for pagination)
+
+e.g. Fetch all logs with log level INFO:
+
+    $ curl {ckan_url}/api/3/action/harvest_log_list?level=info
+
+    {
+      "help":"http://127.0.0.1:5000/api/3/action/help_show?name=harvest_log_list",
+
+      "success":true,
+
+      "result": [{"content":"Sent job aa987717-2316-4e47-b0f2-cbddfb4c4dfc to the gather queue","level":"INFO","created":"2016-06-03 10:59:40.961657"}, {"content":"Sent job aa987717-2316-4e47-b0f2-cbddfb4c4dfc to the gather queue","level":"INFO","created":"2016-06-03 10:59:40.951548"}]
+      
+    }
+
 
 
 Command line interface
@@ -162,6 +227,11 @@ The following operations can be run from the command line using the
           WARNING: if using Redis, this command purges all data in the current
           Redis database
 
+      harvester clean_harvest_log
+        - Clean-up mechanism for the harvest log table.
+          You can configure the time frame through the configuration
+          parameter 'ckan.harvest.log_timeframe'. The default time frame is 30 days
+
       harvester [-j] [-o] [--segments={segments}] import [{source-id}]
         - perform the import stage with the last fetched objects, for a certain
           source or a single harvest object. Please note that no objects will
@@ -219,12 +289,11 @@ field. The currently supported configuration options are:
     the CKAN API. Default is 2.
 
 *   default_tags: A list of tags that will be added to all harvested datasets.
-    Tags don't need to previously exist.
+    Tags don't need to previously exist. This field takes a list of tag dicts
+    (see example), which allows you to optinally specify a vocabulary.
 
-*   default_groups: A list of groups to which the harvested datasets will be
-    added to. The groups must exist. Note that you must use ids or names to
-    define the groups according to the API version you defined (names for version
-    1, ids for version 2).
+*   default_groups: A list of group IDs or names to which the harvested datasets
+    will be added to. The groups must exist.
 
 *   default_extras: A dictionary of key value pairs that will be added to extras
     of the harvested datasets. You can use the following replacement strings,
@@ -297,9 +366,9 @@ the configuration field)::
 
     {
      "api_version": 1,
-     "default_tags":["new-tag-1","new-tag-2"],
-     "default_groups":["my-own-group"],
-     "default_extras":{"new_extra":"Test","harvest_url":"{harvest_source_url}/dataset/{dataset_id}"},
+     "default_tags": [{"name": "geo"}, {"name": "namibia"],
+     "default_groups": ["science", "spend-data"],
+     "default_extras": {"encoding":"utf8", "harvest_url": "{harvest_source_url}/dataset/{dataset_id}"},
      "override_extras": true,
      "organizations_filter_include": [],
      "organizations_filter_exclude": ["remote-organization"],
@@ -585,7 +654,8 @@ following steps with the one you are using.
    describe the tasks that need to be monitored. This configuration files are
    stored in ``/etc/supervisor/conf.d``.
 
-   Create a file named ``/etc/supervisor/conf.d/ckan_harvesting.conf``, and copy the following contents::
+   Create a file named ``/etc/supervisor/conf.d/ckan_harvesting.conf``, and
+   copy the following contents::
 
 
         ; ===============================
@@ -676,10 +746,11 @@ following steps with the one you are using.
 
     sudo crontab -e -u ckan
 
-   Note that we are running this command as the same user we configured the processes to be run with
-   (`ckan` in our example).
+   Note that we are running this command as the same user we configured the
+   processes to be run with (`ckan` in our example).
 
-   Paste this line into your crontab, again replacing the paths to paster and the ini file with yours::
+   Paste this line into your crontab, again replacing the paths to paster and
+   the ini file with yours::
 
     # m  h  dom mon dow   command
     */15 *  *   *   *     /usr/lib/ckan/default/bin/paster --plugin=ckanext-harvest harvester run --config=/etc/ckan/std/std.ini
@@ -687,6 +758,39 @@ following steps with the one you are using.
    This particular example will check for pending jobs every fifteen minutes.
    You can of course modify this periodicity, this `Wikipedia page <http://en.wikipedia.org/wiki/Cron#CRON_expression>`_
    has a good overview of the crontab syntax.
+
+5. In order to setup clean-up mechanism for the harvest log one more cron job needs to be scheduled::
+
+    sudo crontab -e -u ckan
+
+   Paste this line into your crontab, again replacing the paths to paster and
+   the ini file with yours::
+
+    # m  h  dom mon dow   command
+      0  5  *   *   *     /usr/lib/ckan/default/bin/paster --plugin=ckanext-harvest harvester clean_harvest_log --config=/etc/ckan/std/std.ini
+
+   This particular example will perform clean-up each day at 05 AM.
+   You can tweak the value according to your needs.
+
+Tests
+=====
+
+You can run the tests like this:
+
+    cd ckanext-harvest
+    nosetests --reset-db --ckan --with-pylons=test-core.ini ckanext/harvest/tests
+
+Here are some common errors and solutions:
+
+* ``(OperationalError) no such table: harvest_object_error u'delete from "harvest_object_error"``
+  The database has got into in a bad state. Run the tests again but with the ``--reset-db`` parameter.
+
+* ``(ProgrammingError) relation "harvest_object_extra" does not exist``
+  The database has got into in a bad state. Run the tests again but *without* the ``--reset-db`` parameter.
+
+* ``(OperationalError) near "SET": syntax error``
+  You are testing with SQLite as the database, but the CKAN Harvester needs PostgreSQL. Specify test-core.ini instead of test.ini.
+
 
 Community
 =========
