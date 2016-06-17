@@ -398,6 +398,12 @@ class CKANHarvester(HarvesterBase):
                 log.warn('Remote dataset is a harvest source, ignoring...')
                 return True
 
+            if not package_dict['extras'].get('public') or package_dict['extras'].get('public') != 'true':
+                log.warn('Remote dataset not cleared for publication, deleting... ' + package_dict['name']);
+                package_dict['state'] = 'deleted'
+            else:
+                package_dict['state'] = 'active'
+
             # Set default tags if needed
             default_tags = self.config.get('default_tags', [])
             if default_tags:
