@@ -67,13 +67,13 @@ def get_connection_amqp():
 
 def get_connection_redis():
     if not config.get('ckan.harvest.mq.hostname') and config.get('ckan.redis.url'):
-        return redis.StrictRedis.from_url(config['ckan.redis.url'])
+        return redis.StrictRedis.from_url(config['ckan.redis.url'], decode_responses=True)
     else:
         return redis.StrictRedis(
             host=config.get('ckan.harvest.mq.hostname', HOSTNAME),
             port=int(config.get('ckan.harvest.mq.port', REDIS_PORT)),
             password=config.get('ckan.harvest.mq.password', None),
-            db=int(config.get('ckan.harvest.mq.redis_db', REDIS_DB)))
+            db=int(config.get('ckan.harvest.mq.redis_db', REDIS_DB)), decode_responses=True)
 
 
 def get_gather_queue_name():
