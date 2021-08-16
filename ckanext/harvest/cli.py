@@ -277,6 +277,7 @@ def run_test(ctx, id, force_import=None):
     fire up gather/fetch_consumer processes, as is done in production.
 
     """
+    force_import_val = False
     if force_import:
         force_import_val = force_import.split('=')[-1]
     flask_app = ctx.meta["flask_app"]
