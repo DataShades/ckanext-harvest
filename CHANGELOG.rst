@@ -11,6 +11,74 @@ and this project adheres to `Semantic Versioning <http://semver.org/>`_
 Unreleased_
 ***********
 
+***********
+1.3.3_ - 2021-03-26
+***********
+
+Changed
+-------
+
+- Migrate tests from Travis CI to GitHub Actions
+- Optimize last error free job detection #437
+
+Fixed
+-----
+- Improve timeout detection #431
+- Check if Redis key is available #432
+- Include webassets.yml in MANIFEST
+
+
+***********
+1.3.2_ - 2020-10-08
+***********
+
+Changed
+-------
+
+- Calculate timeouts based on last finished object instead of job creation time #418
+
+Fixed
+-----
+
+- Fix resubmitting harvest objects to Redis fetch queue #421
+
+
+***********
+1.3.1_ - 2020-09-01
+***********
+
+Changed
+-------
+
+- Abort failed jobs CLI command #398
+
+Fixed
+-----
+
+- Fix Redis conflict with core workers
+- Fix harvest source list reference
+- Fix and improve test suite, remove nose tests
+
+
+***********
+1.3.0_ - 2020-06-04
+***********
+
+Changed
+-------
+
+- Support for Python 3 #392
+- Add option for job timeout #403
+- Add support for limiting number of results and filtering by organization in harvest_source_list #403
+
+Fixed
+-----
+
+- Fix support for different Redis client libraries #403
+- Fix force_import option in run_test command #402
+- Fix show object #395
+- Fix handling of exceptions in controller #390
+
 
 ***********
 1.2.1_ - 2020-01-22
@@ -209,7 +277,11 @@ Categories
 - ``Fixed`` for any bug fixes.
 - ``Security`` to invite users to upgrade in case of vulnerabilities.
 
-.. _Unreleased: https://github.com/ckan/ckanext-harvest/compare/v1.2.0...HEAD
+.. _Unreleased: https://github.com/ckan/ckanext-harvest/compare/v1.3.2...HEAD
+.. _1.3.2: https://github.com/ckan/ckanext-harvest/compare/v1.3.1...v1.3.2
+.. _1.3.1: https://github.com/ckan/ckanext-harvest/compare/v1.3.0...v1.3.1
+.. _1.3.0: https://github.com/ckan/ckanext-harvest/compare/v1.2.1...v1.3.0
+.. _1.2.1: https://github.com/ckan/ckanext-harvest/compare/v1.2.0...v1.2.1
 .. _1.2.0: https://github.com/ckan/ckanext-harvest/compare/v1.1.4...v1.2.0
 .. _1.1.4: https://github.com/ckan/ckanext-harvest/compare/v1.1.3...v1.1.4
 .. _1.1.3: https://github.com/ckan/ckanext-harvest/compare/v1.1.2...v1.1.3

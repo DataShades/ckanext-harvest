@@ -132,8 +132,12 @@ def resubmit_jobs():
     # fetch queue
     harvest_object_pending = redis.keys(get_fetch_routing_key() + ':*')
     for key in harvest_object_pending:
+        redis_key = redis.get(key)
+        if redis_key is None:
+            log.info('Fetch Queue: Redis cannot get key {}'.format(key))
+            continue
         date_of_key = datetime.datetime.strptime(
-            redis.get(key), "%Y-%m-%d %H:%M:%S.%f")
+            redis_key, "%Y-%m-%d %H:%M:%S.%f")
         # 3 minutes for fetch and import max
         if (datetime.datetime.now() - date_of_key).seconds > 180:
             redis.rpush(get_fetch_routing_key(),
@@ -144,8 +148,12 @@ def resubmit_jobs():
     # gather queue
     harvest_jobs_pending = redis.keys(get_gather_routing_key() + ':*')
     for key in harvest_jobs_pending:
+        redis_key = redis.get(key)
+        if redis_key is None:
+            log.info('Gather Queue: Redis cannot get key {}'.format(key))
+            continue
         date_of_key = datetime.datetime.strptime(
-            redis.get(key), "%Y-%m-%d %H:%M:%S.%f")
+            redis_key, "%Y-%m-%d %H:%M:%S.%f")
         # 3 hours for a gather
         if (datetime.datetime.now() - date_of_key).seconds > 7200:
             redis.rpush(get_gather_routing_key(),
@@ -167,10 +175,16 @@ def resubmit_objects():
         .filter_by(state='WAITING') \
         .all()
 
-    for object_id in waiting_objects:
-        if not redis.get(object_id):
-            log.debug('Re-sent object {} to the fetch queue'.format(object_id[0]))
-            publisher.send({'harvest_object_id': object_id[0]})
+    objects_in_queue = []
+    fetch_routing_key = get_fetch_routing_key()
+
+    objects_in_queue = [json.loads(o)['harvest_object_id']
+                        for o in redis.lrange(fetch_routing_key, 0, -1)]
+
+    for object_id, in waiting_objects:
+        if object_id not in objects_in_queue:
+            log.debug('Re-sent object {} to the fetch queue'.format(object_id))
+            publisher.send({'harvest_object_id': object_id})
 
 
 class Publisher(object):
@@ -203,7 +217,16 @@ class RedisPublisher(object):
         value = json.dumps(body)
         # remove if already there
         if self.routing_key == get_gather_routing_key():
-            self.redis.lrem(self.routing_key, 0, value)
+            # it appears that both types of call are possible within the redis library depending on which version used
+            # for now support both versions
+            # https://github.com/andymccurdy/redis-py#client-classes-redis-and-strictredis
+            try:
+                self.redis.lrem(self.routing_key, 0, value)
+            except redis.ResponseError as e:
+                if 'value is not an integer' in e.message:
+                    self.redis.lrem(self.routing_key, value, 0)
+                else:
+                    raise
         self.redis.rpush(self.routing_key, value)
 
     def close(self):
@@ -447,6 +470,16 @@ def fetch_callback(channel, method, header, body):
         obj.state = "ERROR"
         obj.save()
         log.error('Too many consecutive retries for object {0}'.format(obj.id))
+        channel.basic_ack(method.delivery_tag)
+        return False
+
+    # check if job has been set to finished
+    job = HarvestJob.get(obj.harvest_job_id)
+    if job.status == 'Finished':
+        obj.state = "ERROR"
+        obj.report_status = "errored"
+        obj.save()
+        log.error('Job {0} was aborted or timed out, object {1} set to error'.format(job.id, obj.id))
         channel.basic_ack(method.delivery_tag)
         return False
 

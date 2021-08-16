@@ -230,6 +230,20 @@ def clear_harvest_source_history(source_id, keep_actual):
             len(cleared_sources_dicts))
 
 
+def abort_failed_jobs(job_life_span, include, exclude):
+    context = {
+        "model": model,
+        "user": _admin_user()["name"],
+        "session": model.Session,
+    }
+    result = tk.get_action("harvest_abort_failed_jobs")(context, {
+        "life_span": job_life_span,
+        "include": include,
+        "exclude": exclude
+    })
+    print(result)
+
+
 def purge_queues():
     from ckanext.harvest.queue import purge_queues as purge
 
@@ -348,7 +362,7 @@ def run_harvester():
     tk.get_action("harvest_jobs_run")(context, {})
 
 
-def run_test_harvester(source_id_or_name):
+def run_test_harvester(source_id_or_name, force_import):
     from ckanext.harvest import queue
     from ckanext.harvest.tests import lib
     from ckanext.harvest.logic import HarvestJobExists
@@ -379,10 +393,7 @@ def run_test_harvester(source_id_or_name):
             print('\nSource "{0}" apparently has a "Running" job:\n{1}'.format(
                 source.get("name") or source["id"], running_jobs))
 
-            if six.PY2:
-                resp = raw_input("Abort it? (y/n)")
-            else:
-                resp = input("Abort it? (y/n)")
+            resp = six.moves.input("Abort it? (y/n)")
             if not resp.lower().startswith("y"):
                 sys.exit(1)
             job_dict = tk.get_action("harvest_job_abort")(
@@ -399,6 +410,9 @@ def run_test_harvester(source_id_or_name):
                     ), 'Multiple "New" jobs for this source! {0}'.format(jobs)
             job_dict = jobs[0]
     job_obj = HarvestJob.get(job_dict["id"])
+
+    if force_import:
+        job_obj.force_import = force_import
 
     harvester = queue.get_harvester(source["source_type"])
     assert harvester, "No harvester found for type: {0}".format(
