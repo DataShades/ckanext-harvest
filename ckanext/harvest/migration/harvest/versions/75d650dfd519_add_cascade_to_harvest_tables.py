@@ -6,7 +6,7 @@ Create Date: 2023-11-02 17:13:39.995339
 
 """
 from alembic import op
-
+import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "75d650dfd519"
@@ -77,9 +77,13 @@ def _recreate_fk(ondelete):
         ondelete=ondelete,
     )
 
-    op.drop_constraint(
-        "harvest_gather_error_harvest_job_id_fkey", "harvest_gather_error"
-    )
+    engine = op.get_bind()
+    inspector = sa.inspect(engine)
+
+    keys = [k["name"] for k in inspector.get_foreign_keys("harvest_gather_error")]
+    fkey = "harvest_gather_error_harvest_job_id_fkey"
+    if fkey in keys:
+        op.drop_constraint(fkey, "harvest_gather_error")
     op.create_foreign_key(
         "harvest_gather_error_harvest_job_id_fkey",
         "harvest_gather_error",
@@ -89,9 +93,10 @@ def _recreate_fk(ondelete):
         ondelete=ondelete,
     )
 
-    op.drop_constraint(
-        "harvest_object_error_harvest_object_id_fkey", "harvest_object_error"
-    )
+    keys = [k["name"] for k in inspector.get_foreign_keys("harvest_object_error")]
+    fkey = "harvest_object_error_harvest_object_id_fkey"
+    if fkey in keys:
+        op.drop_constraint(fkey, "harvest_object_error")
     op.create_foreign_key(
         "harvest_object_error_harvest_object_id_fkey",
         "harvest_object_error",
