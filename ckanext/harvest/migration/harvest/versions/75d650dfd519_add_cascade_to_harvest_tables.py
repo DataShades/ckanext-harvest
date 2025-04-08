@@ -82,8 +82,20 @@ def _recreate_fk(ondelete):
 
     keys = [k["name"] for k in inspector.get_foreign_keys("harvest_gather_error")]
     fkey = "harvest_gather_error_harvest_job_id_fkey"
+
     if fkey in keys:
         op.drop_constraint(fkey, "harvest_gather_error")
+
+    err_table = sa.table("harvest_gather_error", sa.column("id"), sa.column("harvest_job_id"))
+    ref_table = sa.table("harvest_job", sa.column("id"))
+
+    id_q = sa.select(err_table.c.id).outerjoin(
+        ref_table, ref_table.c.id == err_table.c.harvest_job_id
+    ).where(ref_table.c.id.is_(None))
+    stmt = sa.delete(err_table).where(err_table.c.id.in_(id_q))
+    with engine.connect() as conn:
+        conn.execute(stmt)
+
     op.create_foreign_key(
         "harvest_gather_error_harvest_job_id_fkey",
         "harvest_gather_error",
@@ -97,6 +109,18 @@ def _recreate_fk(ondelete):
     fkey = "harvest_object_error_harvest_object_id_fkey"
     if fkey in keys:
         op.drop_constraint(fkey, "harvest_object_error")
+
+    err_table = sa.table("harvest_object_error", sa.column("id"), sa.column("harvest_object_id"))
+    ref_table = sa.table("harvest_object", sa.column("id"))
+
+    id_q = sa.select(err_table.c.id).outerjoin(
+        ref_table, ref_table.c.id == err_table.c.harvest_object_id
+    ).where(ref_table.c.id.is_(None))
+    stmt = sa.delete(err_table).where(err_table.c.id.in_(id_q))
+    with engine.connect() as conn:
+        conn.execute(stmt)
+
+
     op.create_foreign_key(
         "harvest_object_error_harvest_object_id_fkey",
         "harvest_object_error",
