@@ -966,6 +966,12 @@ def harvest_source_reindex(context, data_dict):
         if key not in config:
             new_dict[key] = value
 
+    # CKAN 2.11+ requires index_package to receive both the default- and
+    # custom-schema dicts; it pops 'with_custom_schema' to use as the
+    # validated_data_dict. Harvest sources only have one show dict, so reuse
+    # it for both (matches the pre-2.11 single-dict indexing behaviour).
+    new_dict['with_custom_schema'] = dict(new_dict)
+
     package_index = PackageSearchIndex()
     package_index.index_package(new_dict, defer_commit=defer_commit)
 

@@ -73,6 +73,27 @@ def harvest_source_update_package_schema():
     return schema
 
 
+def _remove_orphaned_extras(key, data, errors, context):
+    """Drop extras left keyless by convert_from_extras.
+
+    In CKAN 2.11+, convert_from_extras pulls source_type/frequency/config up
+    to root and deletes their flattened ('extras', N, 'key'/'value') entries.
+    But the extras subschema still runs afterwards (keys were captured by
+    augment_data before deletion): not_empty drops the orphaned 'key', while
+    unicode_safe(None) reanimates the 'value' as ''. The result is
+    extras=[{'value': ''}, ...] with no 'key', which crashes consumers such as
+    ckanext-dcat's after_dataset_show.
+    """
+    for index in {k[1] for k in data if k[0] == 'extras' and len(k) == 3}:
+        if data.get(('extras', index, 'key')):
+            continue
+
+        for subkey in ('id', 'key', 'value', 'state', 'deleted',
+                       'revision_timestamp'):
+            data.pop(('extras', index, subkey), None)
+            errors.pop(('extras', index, subkey), None)
+
+
 def harvest_source_show_package_schema():
 
     schema = harvest_source_schema()
@@ -92,6 +113,7 @@ def harvest_source_show_package_schema():
     })
 
     schema['__extras'] = [ignore]
+    schema['__after'] = [_remove_orphaned_extras]
 
     return schema
 

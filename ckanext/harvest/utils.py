@@ -399,9 +399,16 @@ def run_test_harvester(source_id_or_name, force_import):
     if force_import:
         job_obj.force_import = force_import
 
-    harvester = queue.get_harvester(source["source_type"])
-    assert harvester, "No harvester found for type: {0}".format(
-        source["source_type"])
+    source_type = source.get("source_type")
+
+    if not source_type:
+        for extra in source.get("extras", []):
+            if extra.get("key") == "source_type":
+                source_type = extra.get("value")
+                break
+
+    harvester = queue.get_harvester(source_type)
+    assert harvester, "No harvester found for type: {0}".format(source_type)
     lib.run_harvest_job(job_obj, harvester)
 
 
