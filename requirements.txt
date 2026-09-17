@@ -1,4 +1,1 @@
-ckantoolkit>=0.0.7
-pika>=1.1.0,<1.3.0
-redis
-requests>=2.11.1
+# Empty file kept for compatibility, requirements are in pyproject.toml
