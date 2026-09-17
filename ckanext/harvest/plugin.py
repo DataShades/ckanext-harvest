@@ -229,6 +229,9 @@ class Harvest(p.SingletonPlugin, DefaultDatasetForm, DefaultTranslation):
                 status_action = p.toolkit.get_action(st_action_name)
 
             data_dict["status"] = status_action(context, {"id": source.id})
+            data_dict["config"] = source.config
+            data_dict["source_type"] = source.type
+            data_dict["frequency"] = source.frequency
 
         return data_dict
 
@@ -447,6 +450,7 @@ def _update_harvest_source_object(context, data_dict):
         source.type = data_dict['source_type']
 
     if 'config' in data_dict:
+        breakpoint()
         source.config = data_dict['config']
 
     # Don't change state unless explicitly set in the dict
