@@ -450,7 +450,6 @@ def _update_harvest_source_object(context, data_dict):
         source.type = data_dict['source_type']
 
     if 'config' in data_dict:
-        breakpoint()
         source.config = data_dict['config']
 
     # Don't change state unless explicitly set in the dict
