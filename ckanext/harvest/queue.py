@@ -278,7 +278,16 @@ class RedisConsumer(object):
 
     def consume(self, queue):
         while True:
-            key, body = self.redis.blpop(self.routing_key)
+            # Block for a bounded time rather than indefinitely: redis-py 8
+            # applies a default socket_timeout (5s), so an unbounded BLPOP on
+            # an idle queue would raise TimeoutError. None means nothing
+            # arrived within the timeout; just wait again.
+            item = self.redis.blpop(self.routing_key, timeout=1)
+
+            if item is None:
+                continue
+
+            _, body = item
             try:
                 self.redis.set(self.persistance_key(body), str(datetime.datetime.now()))
             except Exception as e:
